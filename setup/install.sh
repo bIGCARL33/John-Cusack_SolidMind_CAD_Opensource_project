@@ -146,51 +146,12 @@ fi
 
 # ---------------------------------------------------------------- 6. addon
 say "6/7  FreeCAD addon"
-# Two symlinks are required, and upstream's install_freecad_addon.sh only
-# creates the second one:
-#
-#   1. <UserAppData>/Mod/SolidMind  — FreeCAD 1.1 keeps per-version user data in
-#      ~/.local/share/FreeCAD/v1-1/, so this is the only path it actually scans
-#      for addons. Without it InitGui.py is never executed and the addon never
-#      starts (port 9876 stays closed, with no error anywhere).
-#
-#   2. ~/.local/share/FreeCAD/Mod/SolidMind — freecad_addon/InitGui.py hardcodes
-#      this path to resolve the repo root onto sys.path. Without it the addon is
-#      loaded but dies with "ModuleNotFoundError: No module named 'freecad_addon'".
-#
-# Creating both keeps the upstream sources untouched.
-ADDON_SRC="${REPO_ROOT}/freecad_addon"
-[ -d "$ADDON_SRC" ] || die "freecad_addon/ not found — is this the SolidMind CAD repo?"
-
-link_addon() {  # $1 = Mod directory
-  mkdir -p "$1"
-  if [ -e "$1/SolidMind" ] && [ ! -L "$1/SolidMind" ]; then
-    warn "$1/SolidMind exists and is not a symlink — leaving it alone"
-    return
-  fi
-  ln -sfn "$ADDON_SRC" "$1/SolidMind"
-  ok "linked $1/SolidMind"
-}
-
-link_addon "${HOME}/.local/share/FreeCAD/Mod"          # for InitGui.py's path resolution
-
-# Ask FreeCAD itself where its user data lives, so this keeps working on 1.0.x
-# and on whatever version numbering comes next.
-USER_APPDATA=""
-if command -v freecad >/dev/null 2>&1; then
-  USER_APPDATA="$(freecad freecadcmd -c 'import FreeCAD; print(FreeCAD.getUserAppDataDir())' 2>/dev/null | tail -1 | tr -d '\r')"
-fi
-if [ -n "$USER_APPDATA" ] && [ "${USER_APPDATA#/}" != "$USER_APPDATA" ]; then
-  link_addon "${USER_APPDATA%/}/Mod"
-  ok "FreeCAD user data: $USER_APPDATA"
-else
-  # FreeCAD not runnable here (or --skip-freecad): cover the known layouts.
-  warn "could not query FreeCAD for its data dir — linking known version dirs"
-  for d in "${HOME}/.local/share/FreeCAD"/v*/; do
-    [ -d "$d" ] && link_addon "${d}Mod"
-  done
-  link_addon "${HOME}/.local/share/FreeCAD/v1-1/Mod"
-fi
+# FreeCAD 1.1 keeps user data in ~/.local/share/FreeCAD/v1-1/ and only scans the
+# Mod directory inside it, so the addon has to be linked there rather than into
+# the legacy ~/.local/share/FreeCAD/Mod. scripts/install_freecad_addon.sh asks
+# FreeCAD for that path itself, so just delegate to it.
+[ -d "${REPO_ROOT}/freecad_addon" ] || die "freecad_addon/ not found — is this the SolidMind CAD repo?"
+bash "${REPO_ROOT}/scripts/install_freecad_addon.sh"
 
 # ---------------------------------------------------------------- 7. mcp config
 say "7/7  MCP configuration"

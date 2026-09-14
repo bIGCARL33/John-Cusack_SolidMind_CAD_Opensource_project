@@ -49,7 +49,7 @@ case "${1:-status}" in
       if port_open; then echo "Ready — SolidMind addon listening on 127.0.0.1:${PORT}"; exit 0; fi
       if grep -q "SolidMind. Failed to start" "$LOG" 2>/dev/null; then
         echo "Addon failed to start:" >&2; cat "$LOG" >&2
-        echo "Hint: re-run setup/install.sh — both Mod symlinks must exist." >&2
+        echo "Hint: re-run scripts/install_freecad_addon.sh, then check $LOG." >&2
         exit 1
       fi
     done

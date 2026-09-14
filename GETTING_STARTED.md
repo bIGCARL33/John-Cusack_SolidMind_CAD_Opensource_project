@@ -61,51 +61,55 @@ with an explicit interpreter:
 python3.12 -m venv .venv
 ```
 
-### Gotcha 2 — the addon symlink goes in a directory the install script doesn't use
+### Gotcha 2 — the addon symlink went into a directory FreeCAD doesn't scan
 
-This is the big one, and it's why a by-the-book install can leave you with
-FreeCAD open, no error message anywhere, and every `cad.*` call timing out.
+**Fixed in this repo** (`freecad_addon/InitGui.py` + `scripts/install_freecad_addon.sh`),
+and submitted upstream. Recorded here because it's the failure you'll hit on any
+checkout that predates the fix, and it gives you nothing to go on.
 
-`scripts/install_freecad_addon.sh` symlinks the addon into:
+`scripts/install_freecad_addon.sh` used to symlink the addon into:
 
 ```
 ~/.local/share/FreeCAD/Mod/SolidMind
 ```
 
 But **FreeCAD 1.1 keeps per-version user data in `~/.local/share/FreeCAD/v1-1/`**,
-so that is *not* the directory it scans for addons. `InitGui.py` never runs, the
-socket server never starts, and port 9876 stays closed with nothing logged.
+so that is not the directory it scans for addons. `InitGui.py` is never executed,
+the socket server never starts, and port 9876 stays closed — FreeCAD opens
+normally, the Report view is empty, and every `cad.*` call fails with
+`CONNECTION_ERROR`.
 
-Symlinking only into the versioned directory doesn't work either, because
-`freecad_addon/InitGui.py` hardcodes the *legacy* path to put the repo root on
-`sys.path`:
+Symlinking only into the versioned directory didn't work either, because
+`InitGui.py` hardcoded the *legacy* path to put the repo root on `sys.path`:
 
 ```python
 _mod_dir = Path.home() / ".local" / "share" / "FreeCAD" / "Mod" / "SolidMind"
 _repo_root = str(_mod_dir.resolve().parent)
 ```
 
-Drop the legacy symlink and FreeCAD loads the addon but it dies immediately:
+So the addon loaded but died immediately:
 
 ```
 [SolidMind] Failed to start: No module named 'freecad_addon'
 ```
 
-**You need both symlinks**, for two different reasons:
+**The fix** removes the hardcoded path entirely. FreeCAD prepends each addon's
+own directory to `sys.path` before exec'ing its `InitGui.py`, so the repo root is
+recovered from there — correct wherever the addon is installed and whatever the
+symlink is named. The install script asks FreeCAD for its data directory via
+`FreeCAD.getUserAppDataDir()` instead of hardcoding `v1-1`, so it also covers
+1.0.x and later versions. One symlink, in the right place:
 
 ```bash
-# 1. the path FreeCAD 1.1 actually scans — makes the addon load at all
-ln -sfn "$PWD/freecad_addon" ~/.local/share/FreeCAD/v1-1/Mod/SolidMind
-
-# 2. the path InitGui.py hardcodes — lets it find the repo root
-ln -sfn "$PWD/freecad_addon" ~/.local/share/FreeCAD/Mod/SolidMind
+scripts/install_freecad_addon.sh
 ```
 
-`setup/install.sh` asks FreeCAD itself for its user-data directory
-(`FreeCAD.getUserAppDataDir()`) rather than hardcoding `v1-1`, so it keeps
-working on 1.0.x and on future versions. No upstream source is modified.
-
----
+Two things about `InitGui.py` worth knowing before editing it: FreeCAD execs it
+with **no `__file__`**, and with **separate globals and locals mappings**. The
+second one means helper functions and comprehensions defined in that file can't
+see names defined alongside them — they resolve against the empty globals and
+raise `NameError` at call time. That's why the resolution logic is written
+inline with plain loops rather than factored into functions.
 
 ## Verifying it works
 
@@ -129,13 +133,12 @@ MCP bridge server
 
 FreeCAD
   ✓ freecad on PATH
-  ✓ addon symlink (for InitGui.py path resolution)
-  ✓ addon symlink (the one FreeCAD 1.1 actually scans)
+  ✓ addon linked: ~/.local/share/FreeCAD/v1-1/Mod/SolidMind
 
 Live connection
   ✓ FreeCAD addon is listening on 127.0.0.1:9876 — cad.* tools will work
 
-Summary: 9 passed, 0 failed, 0 warnings
+Summary: 8 passed, 0 failed, 0 warnings
 ```
 
 The full test suite should also be green:
@@ -235,8 +238,8 @@ For multi-subsystem assemblies there's a headless orchestrator with G0–G7 gate
 | Symptom | Cause | Fix |
 |---|---|---|
 | `cad.*` calls hang, then `CONNECTION_ERROR ... after 3 attempts` | FreeCAD not running, or addon not loaded | `setup/doctor.sh`; start FreeCAD |
-| FreeCAD is open but `:9876` never opens, nothing logged | addon not in the versioned `Mod` dir (gotcha #2) | `setup/install.sh` |
-| `[SolidMind] Failed to start: No module named 'freecad_addon'` | legacy `Mod` symlink missing (gotcha #2) | `setup/install.sh` |
+| FreeCAD is open but `:9876` never opens, nothing logged | addon not in the versioned `Mod` dir (gotcha #2) | `scripts/install_freecad_addon.sh` |
+| `[SolidMind] Failed to start: No module named 'freecad_addon'` | pre-fix `InitGui.py` resolving the wrong root (gotcha #2) | `scripts/install_freecad_addon.sh` |
 | `pip install -e .` fails in the maturin backend | Python < 3.12, or no Rust | `python3.12 -m venv .venv`; install rustup |
 | `ModuleNotFoundError: solidmind_geometry` | Rust extension not built | `.venv/bin/maturin develop --manifest-path geometry/Cargo.toml` |
 | `No suitable fusermount binary found` | no FUSE for the AppImage | extract it: `./FreeCAD_*.AppImage --appimage-extract` |

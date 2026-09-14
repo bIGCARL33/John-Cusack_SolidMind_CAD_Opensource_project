@@ -70,14 +70,18 @@ if command -v freecad >/dev/null 2>&1; then ok "freecad on PATH -> $(readlink -f
 elif [ -x "${HOME}/Applications/squashfs-root/AppRun" ]; then warn "freecad not on PATH, but an extracted AppImage exists"
 else bad "FreeCAD not installed — run setup/install.sh"; fi
 
-# Both symlinks matter, for different reasons. See setup/install.sh step 6.
-LEGACY="${HOME}/.local/share/FreeCAD/Mod/SolidMind"
-[ -L "$LEGACY" ] && ok "addon symlink (for InitGui.py path resolution): $LEGACY" \
-                 || bad "missing $LEGACY — addon will fail with ModuleNotFoundError: freecad_addon"
-
-VERSIONED=$(ls -d "${HOME}/.local/share/FreeCAD"/v*/Mod/SolidMind 2>/dev/null | head -1)
-if [ -n "$VERSIONED" ]; then ok "addon symlink (the one FreeCAD 1.1 actually scans): $VERSIONED"
-else bad "no <UserAppData>/Mod/SolidMind symlink — FreeCAD will never load the addon (port 9876 stays silently closed)"; fi
+# The addon only needs one symlink, but it has to be in the directory FreeCAD
+# actually scans — which is version-specific since 1.1. InitGui.py recovers the
+# repo root from sys.path, so the old legacy-path link is no longer required.
+FOUND_LINK=""
+for d in "${HOME}/.local/share/FreeCAD"/v*/Mod/SolidMind "${HOME}/.local/share/FreeCAD/Mod/SolidMind"; do
+  [ -L "$d" ] && { FOUND_LINK="$d"; break; }
+done
+if [ -n "$FOUND_LINK" ]; then
+  ok "addon linked: $FOUND_LINK -> $(readlink "$FOUND_LINK")"
+else
+  bad "addon not linked into any FreeCAD Mod directory — run scripts/install_freecad_addon.sh"
+fi
 
 hdr "Live connection"
 if timeout 3 bash -c 'echo > /dev/tcp/127.0.0.1/9876' 2>/dev/null; then
