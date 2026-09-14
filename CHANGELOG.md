@@ -35,6 +35,22 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   deterministic baseline is measured at hit rate 0.25 / false-alarm rate 0.00.
 
 ### Fixed
+- **The addon never loaded on FreeCAD 1.1, silently.** FreeCAD 1.1 keeps user
+  data in a version-specific directory (`~/.local/share/FreeCAD/v1-1/`) and only
+  scans the `Mod` directory inside it, but `scripts/install_freecad_addon.sh`
+  always symlinked into the pre-1.1 `~/.local/share/FreeCAD/Mod`. On the version
+  the README recommends, `InitGui.py` was therefore never executed: FreeCAD
+  started normally, the Report view stayed empty, port 9876 was never opened,
+  and every `cad.*` tool failed with `CONNECTION_ERROR`. The script now asks
+  FreeCAD for its user data directory via `FreeCAD.getUserAppDataDir()` instead
+  of hardcoding a version, falling back to the newest `v*/` directory and then
+  to the pre-1.1 layout when FreeCAD cannot be run. Installing into the correct
+  directory then exposed a second half: `InitGui.py` hardcoded the *legacy* path
+  to put the repo root on `sys.path`, so the addon loaded but died with
+  `No module named 'freecad_addon'`. It now recovers the repo root from the
+  `sys.path` entry FreeCAD adds for the addon itself, which is correct wherever
+  the addon is installed and whatever the symlink is named, with the previous
+  locations kept as a fallback so existing installs keep working.
 - **Every exported drone carried a phantom 1 kg body.** `export_sim_package`
   inserts a `base_link` frame when `ground_clearance_m` is set, and left its
   mass unset — but an omitted `<inertial>` is not a massless link. URDF and SDF
